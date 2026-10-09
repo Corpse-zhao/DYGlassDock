@@ -1,0 +1,71 @@
+name: Build DYGlassDock
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          brew install make xz ldid
+
+      - name: Setup Theos (roothide 分支)
+        run: |
+          export THEOS=$HOME/theos
+          # ⚠️ 必须用 roothide/theos：官方 theos 没有 roothide package scheme
+          git clone --recursive https://github.com/roothide/theos.git $THEOS
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/theos/sdks.git $THEOS/sdks-tmp
+          cd $THEOS/sdks-tmp
+          git sparse-checkout set iPhoneOS14.5.sdk
+          mv iPhoneOS14.5.sdk $THEOS/sdks/
+          rm -rf $THEOS/sdks-tmp
+          ls $THEOS/sdks/
+          ls $THEOS/vendor/mod/
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          echo "$THEOS/bin" >> $GITHUB_PATH
+
+      - name: Preflight — 静态自检
+        run: |
+          FAIL=0
+          python3 check_local.py || FAIL=1
+          if [ "$FAIL" = "1" ]; then
+            echo "❌ Preflight 未通过，停止构建"
+            exit 1
+          fi
+          echo "✅ Preflight 通过"
+
+      # ⚠️ 绝对不要接 | tail -NN：管道吞掉 make 退出码 → 假绿
+      - name: Build package
+        run: |
+          export THEOS=$HOME/theos
+          gmake package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1
+          ls -la packages/
+
+      - name: Verify package
+        run: |
+          python3 - <<'PY'
+          import glob, subprocess, sys, os
+          debs = glob.glob("packages/*.deb")
+          assert debs, "没有产出 deb"
+          deb = debs[0]
+          print("产物:", deb)
+          assert "arm64e" in deb, "❌ 产物后缀不是 arm64e，roothide scheme 未生效"
+          # data.tar 里必须有 filter plist
+          subprocess.run(["ar","x",deb], check=True, cwd="/tmp")
+          print("✅ 产物校验通过")
+          PY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DYGlassDock-deb
+          path: packages/*.deb
+          if-no-files-found: error

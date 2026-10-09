@@ -1,0 +1,9 @@
+Package: com.dy.glassdock
+Name: 抖音玻璃胶囊
+Version: 0.1.0
+Architecture: iphoneos-arm64e
+Description: 复刻"下载与胶囊"核心能力：右侧悬浮玻璃胶囊（可拖动/收起透明条/贴边吸附/长按锁定）、无水印视频下载、复制直链、系统分享、双击玻璃面板、顶部提示。
+Maintainer: Corpse-zhao
+Author: Corpse-zhao
+Section: Tweaks
+Depends: mobilesubstrate

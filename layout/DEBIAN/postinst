@@ -1,0 +1,4 @@
+#!/bin/sh
+# roothide 下路径由 dpkg 落到随机 jbroot，killall 直接按进程名即可
+killall -9 Aweme 2>/dev/null || true
+exit 0
