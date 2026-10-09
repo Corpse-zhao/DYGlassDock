@@ -1,10 +1,11 @@
 /**
  * DYGlassDock — 抖音「下载与胶囊」核心能力复刻
+ * v0.2.0 侧边胶囊形态对齐原插件截图：
+ *   一列「独立圆钮」贴右缘，无共享容器背景（对应原插件"移除胶囊背景仅保留按钮"）
  *
  * 设计原则（来自技能库教训）：
- *  - 不 hook 任何抖音私有类（类名随版本变，hook 不存在会被 Logos 静默丢弃）
- *    → 只 hook 系统公共类：AVPlayerItem / AVURLAsset / NSURLSession
- *  - 自建浮层绝不 makeKeyAndVisible（§48：抢 key window 会瘫痪整机）
+ *  - 不 hook 任何抖音私有类 → 只 hook 系统公共类：AVPlayerItem / AVURLAsset / NSURLSession
+ *  - 自建浮层绝不 makeKeyAndVisible（§48）
  *  - 浮层挂在 app 的 keyWindow 上，靠 keepalive 定时器保证存活
  */
 
@@ -25,6 +26,9 @@
 #define DY_K_LOCK         @"dy_dock_lock"
 #define DY_K_TOAST_SOUND  @"dy_toast_sound"
 #define DY_K_SCALE        @"dy_dock_scale"
+#define DY_K_UNIFORM      @"dy_dock_uniform"      // 统一箭头图标（截图形态）
+#define DY_K_NO_BASE      @"dy_dock_no_base"      // 隐藏按钮底板只留图标
+#define DY_K_BTN_ALPHA    @"dy_dock_btn_alpha"    // 按钮透明度
 
 static NSString *DYStr(NSString *k, NSString *d) {
     NSString *v = [[NSUserDefaults standardUserDefaults] stringForKey:k];
@@ -57,7 +61,7 @@ typedef NS_ENUM(NSInteger, DYAction) {
 };
 
 // ============================================================
-// MARK: - 前向声明（避免声明顺序问题）
+// MARK: - 前向声明
 // ============================================================
 @interface DYDShared : NSObject
 + (instancetype)sh;
@@ -79,7 +83,7 @@ typedef NS_ENUM(NSInteger, DYAction) {
 @end
 
 // ============================================================
-// MARK: - URL 捕获与去水印（工具函数须先于使用者定义）
+// MARK: - URL 工具（先于使用者定义）
 // ============================================================
 static BOOL DYIsVideoURL(NSURL *u) {
     if (!u) return NO;
@@ -195,14 +199,16 @@ static void DYToast(NSString *msg) {
 // MARK: - 图标 / 标题
 // ============================================================
 static UIImage *DYIconForAction(DYAction a) {
+    // 「统一箭头」= 截图里的形态：一列相同的向下箭头
+    if (DYBool(DY_K_UNIFORM, YES)) return [UIImage systemImageNamed:@"arrow.down"];
     NSString *name = nil;
     switch (a) {
-        case DYActionDownload: name = @"arrow.down.circle.fill";       break;
-        case DYActionCopy:     name = @"doc.on.doc.fill";              break;
-        case DYActionShare:    name = @"square.and.arrow.up.fill";     break;
-        case DYActionPanel:    name = @"square.grid.2x2.fill";         break;
-        case DYActionLock:     name = @"lock.fill";                    break;
-        case DYActionHide:     name = @"chevron.right";                break;
+        case DYActionDownload: name = @"arrow.down";              break;
+        case DYActionCopy:     name = @"doc.on.doc";              break;
+        case DYActionShare:    name = @"square.and.arrow.up";     break;
+        case DYActionPanel:    name = @"square.grid.2x2";         break;
+        case DYActionLock:     name = @"lock";                    break;
+        case DYActionHide:     name = @"chevron.right";           break;
     }
     return [UIImage systemImageNamed:name];
 }
@@ -220,7 +226,7 @@ static NSString *DYTitleForAction(DYAction a) {
 }
 
 // ============================================================
-// MARK: - 玻璃按钮
+// MARK: - 圆钮（独立，深色底板，无共享容器）
 // ============================================================
 @interface DYGlassButton : UIControl
 @property (nonatomic, assign) DYAction action;
@@ -230,15 +236,13 @@ static NSString *DYTitleForAction(DYAction a) {
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = [UIColor colorWithWhite:1 alpha:0.10];
+        [self applyBaseplate];
         self.layer.cornerRadius = frame.size.width / 2;
         self.layer.masksToBounds = YES;
-        self.layer.borderWidth = 0.5;
-        self.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.28].CGColor;
 
         UIImageView *iv = [[UIImageView alloc] initWithImage:DYIconForAction(self.action)];
         iv.tintColor = [UIColor whiteColor];
-        iv.contentMode = UIViewContentModeScaleAspectFit;
+        iv.contentMode = UIViewContentModeCenter;
         iv.frame = CGRectMake(0, 0, frame.size.width, frame.size.height);
         iv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         iv.tag = 7788;
@@ -246,28 +250,38 @@ static NSString *DYTitleForAction(DYAction a) {
     }
     return self;
 }
+- (void)applyBaseplate {
+    if (DYBool(DY_K_NO_BASE, NO)) {
+        self.backgroundColor = [UIColor clearColor];
+        self.layer.borderWidth = 0;
+    } else {
+        self.backgroundColor = [UIColor colorWithWhite:0 alpha:DYFloat(DY_K_BTN_ALPHA, 0.45)];
+        self.layer.borderWidth = 0;
+    }
+}
 - (void)setAction:(DYAction)a {
     _action = a;
     UIImageView *iv = [self viewWithTag:7788];
     iv.image = DYIconForAction(a);
 }
+- (void)refreshLook {
+    [self applyBaseplate];
+    UIImageView *iv = [self viewWithTag:7788];
+    iv.image = DYIconForAction(_action);
+}
 - (void)setHighlighted:(BOOL)h {
     [super setHighlighted:h];
-    self.backgroundColor = h ? [UIColor colorWithWhite:1 alpha:0.26]
-                             : [UIColor colorWithWhite:1 alpha:0.10];
-    self.transform = h ? CGAffineTransformMakeScale(0.92, 0.92)
+    self.transform = h ? CGAffineTransformMakeScale(0.90, 0.90)
                        : CGAffineTransformIdentity;
 }
 @end
 
 // ============================================================
-// MARK: - 玻璃胶囊容器
+// MARK: - 圆钮列（透明容器，只负责排版/拖动/吸附/收起）
 // ============================================================
 @interface DYGlassDockView : UIView <UIGestureRecognizerDelegate>
-@property (nonatomic, strong) UIVisualEffectView *blur;
-@property (nonatomic, strong) UIView *tintView;
-@property (nonatomic, strong) CAGradientLayer *highlight;
 @property (nonatomic, strong) NSMutableArray<DYGlassButton *> *buttons;
+@property (nonatomic, strong) UIView *collapsedBar;
 @property (nonatomic, assign) BOOL collapsed;
 @property (nonatomic, assign) BOOL dragging;
 @property (nonatomic, strong) NSTimer *idleTimer;
@@ -281,34 +295,9 @@ static NSString *DYTitleForAction(DYAction a) {
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
+        self.backgroundColor = [UIColor clearColor];
         self.layer.masksToBounds = NO;
         self.clipsToBounds = NO;
-        self.layer.shadowColor = [UIColor blackColor].CGColor;
-        self.layer.shadowOpacity = 0.35;
-        self.layer.shadowRadius = 12;
-        self.layer.shadowOffset = CGSizeMake(0, 4);
-
-        UIBlurEffect *be = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
-        _blur = [[UIVisualEffectView alloc] initWithEffect:be];
-        _blur.userInteractionEnabled = NO;
-        _blur.frame = self.bounds;
-        _blur.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [self addSubview:_blur];
-
-        _tintView = [[UIView alloc] initWithFrame:self.bounds];
-        _tintView.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
-        _tintView.userInteractionEnabled = NO;
-        _tintView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [self addSubview:_tintView];
-
-        _highlight = [CAGradientLayer layer];
-        _highlight.colors = @[(id)[UIColor colorWithWhite:1 alpha:0.30].CGColor,
-                              (id)[UIColor colorWithWhite:1 alpha:0.02].CGColor,
-                              (id)[UIColor colorWithWhite:1 alpha:0.0].CGColor];
-        _highlight.locations = @[@0.0, @0.35, @1.0];
-        _highlight.startPoint = CGPointMake(0.5, 0);
-        _highlight.endPoint   = CGPointMake(0.5, 1);
-        [self.layer addSublayer:_highlight];
 
         _buttons = [NSMutableArray array];
 
@@ -320,49 +309,51 @@ static NSString *DYTitleForAction(DYAction a) {
             [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(onLong:)];
         lp.minimumPressDuration = 0.5;
         [self addGestureRecognizer:lp];
+
+        _collapsedBar = [[UIView alloc] initWithFrame:CGRectZero];
+        _collapsedBar.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
+        _collapsedBar.layer.cornerRadius = 3;
+        _collapsedBar.hidden = YES;
+        [self addSubview:_collapsedBar];
     }
     return self;
-}
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    CGFloat r = self.bounds.size.height / 2;
-    self.layer.cornerRadius = r;
-    _blur.layer.cornerRadius = r;
-    _blur.frame = self.bounds;
-    _tintView.layer.cornerRadius = r;
-    _tintView.frame = self.bounds;
-    _highlight.cornerRadius = r;
-    _highlight.frame = self.bounds;
 }
 
 - (void)rebuildButtons {
     for (DYGlassButton *b in _buttons) [b removeFromSuperview];
     [_buttons removeAllObjects];
 
+    CGFloat scale = DYFloat(DY_K_SCALE, 1.0);
+    CGFloat side = 30 * scale;   // 圆钮直径（对齐截图）
+    CGFloat gap  = 10 * scale;   // 钮间距
+
     NSString *spec = DYStr(DY_K_ACTIONS, @"download,copy,share,panel,lock");
     NSArray *parts = [spec componentsSeparatedByString:@","];
-    CGFloat scale = DYFloat(DY_K_SCALE, 1.0);
-    CGFloat side = 34 * scale, gap = 6 * scale, pad = 6 * scale;
-
-    CGFloat y = pad;
+    NSMutableArray<DYAction> *acts = [NSMutableArray array];
     for (NSString *p in parts) {
         NSString *t = [p stringByTrimmingCharactersInSet:
             [NSCharacterSet whitespaceCharacterSet]];
         if (t.length == 0) continue;
         DYAction a = (DYAction)[t integerValue];
         if (a < DYActionDownload || a > DYActionHide) continue;
-        DYGlassButton *b = [[DYGlassButton alloc] initWithFrame:CGRectMake(pad, y, side, side)];
-        b.action = a;
+        [acts addObject:@(a)];
+    }
+
+    CGFloat y = 0;
+    for (NSNumber *an in acts) {
+        DYGlassButton *b = [[DYGlassButton alloc] initWithFrame:CGRectMake(0, y, side, side)];
+        b.action = an.integerValue;
         [b addTarget:self action:@selector(tapAction:)
            forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:b];
         [_buttons addObject:b];
         y += side + gap;
     }
-    CGFloat h = y - gap + pad;
-    CGFloat w = side + pad * 2;
-    self.frame = CGRectMake(self.frame.origin.x, self.frame.origin.y, w, h);
+    CGFloat h = MAX(0, y - gap);
+    self.frame = CGRectMake(self.frame.origin.x, self.frame.origin.y, side, h);
+    _collapsedBar.frame = CGRectMake(0, 0, side, h);
+    _collapsedBar.layer.cornerRadius = side / 2;
+    [_collapsedBar setHidden:!_collapsed];
 }
 
 - (void)tapAction:(DYGlassButton *)sender {
@@ -404,12 +395,12 @@ static NSString *DYTitleForAction(DYAction a) {
     CGFloat x = self.frame.origin.x;
     CGFloat target;
     if ([[NSUserDefaults standardUserDefaults] objectForKey:@"dy_dock_ever_moved"] == nil) {
-        target = W - self.bounds.size.width - 4;   // 默认贴右
+        target = W - self.bounds.size.width - 3;   // 默认贴右
     } else {
         target = (x + self.bounds.size.width / 2 < W / 2)
-                 ? 4 : MAX(4, W - self.bounds.size.width - 4);
+                 ? 3 : MAX(3, W - self.bounds.size.width - 3);
     }
-    CGFloat y = MIN(MAX(self.frame.origin.y, 60), H - self.bounds.size.height - 40);
+    CGFloat y = MIN(MAX(self.frame.origin.y, 80), H - self.bounds.size.height - 90);
     [[NSUserDefaults standardUserDefaults] setFloat:y / H forKey:DY_K_POS_Y];
     [UIView animateWithDuration:0.28 delay:0
         options:UIViewAnimationOptionCurveEaseOut
@@ -435,20 +426,28 @@ static NSString *DYTitleForAction(DYAction a) {
 - (void)collapseToBar {
     if (_collapsed) return;
     _collapsed = YES;
+    for (DYGlassButton *b in _buttons) b.alpha = 0;
+    _collapsedBar.hidden = NO;
+    _collapsedBar.alpha = 0;
     [UIView animateWithDuration:0.3 animations:^{
-        CGRect f = self.frame;
-        f.size = CGSizeMake(10, 72);
-        self.frame = f;
-        for (DYGlassButton *b in self->_buttons) b.alpha = 0;
+        self->_collapsedBar.alpha = 1;
+        self.frame = CGRectMake(self.superview.bounds.size.width - 8,
+                                self.frame.origin.y, 8, 72);
     }];
 }
 - (void)expand {
     if (!_collapsed) return;
     _collapsed = NO;
+    _collapsedBar.hidden = YES;
+    CGFloat side = 30 * DYFloat(DY_K_SCALE, 1.0);
+    CGFloat h = side * _buttons.count + 10 * DYFloat(DY_K_SCALE, 1.0) * (_buttons.count - 1);
     [self rebuildButtons];
     for (DYGlassButton *b in _buttons) b.alpha = 0;
     [UIView animateWithDuration:0.25 animations:^{
         for (DYGlassButton *b in self->_buttons) b.alpha = 1;
+        CGRect f = self.frame;
+        f.size = CGSizeMake(side, h);
+        self.frame = f;
     }];
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)g
@@ -572,7 +571,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)o {
 @end
 
 // ============================================================
-// MARK: - 双击玻璃面板
+// MARK: - 功能面板
 // ============================================================
 @interface DYPanelManager () <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIView *overlay;
@@ -597,7 +596,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)o {
         [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismiss)];
     [ov addGestureRecognizer:tg];
 
-    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 290, 250)];
+    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 300, 340)];
     card.center = CGPointMake(key.bounds.size.width / 2, key.bounds.size.height / 2);
     card.layer.cornerRadius = 26;
     card.layer.borderWidth = 0.5;
@@ -613,7 +612,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)o {
     bv.layer.masksToBounds = YES;
     [card addSubview:bv];
 
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(20, 18, 250, 24)];
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(20, 18, 260, 24)];
     title.text = @"下载与胶囊";
     title.textColor = [UIColor whiteColor];
     title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
@@ -621,18 +620,18 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)o {
 
     NSArray *acts = @[@(DYActionDownload), @(DYActionCopy),
                       @(DYActionShare), @(DYActionHide)];
-    CGFloat side = 52, gap = 14;
-    CGFloat startX = (290 - (side * acts.count + gap * (acts.count - 1))) / 2;
+    CGFloat side = 50, gap = 16;
+    CGFloat startX = (300 - (side * acts.count + gap * (acts.count - 1))) / 2;
     for (NSInteger i = 0; i < (NSInteger)acts.count; i++) {
         DYGlassButton *b = [[DYGlassButton alloc]
-            initWithFrame:CGRectMake(startX + i * (side + gap), 58, side, side)];
+            initWithFrame:CGRectMake(startX + i * (side + gap), 54, side, side)];
         b.action = (DYAction)[acts[i] integerValue];
         [b addTarget:self action:@selector(panelAction:)
            forControlEvents:UIControlEventTouchUpInside];
         [card addSubview:b];
 
         UILabel *lb = [[UILabel alloc]
-            initWithFrame:CGRectMake(b.frame.origin.x - 8, 58 + side + 4, side + 16, 16)];
+            initWithFrame:CGRectMake(b.frame.origin.x - 8, 54 + side + 4, side + 16, 16)];
         lb.text = DYTitleForAction(b.action);
         lb.textColor = [UIColor colorWithWhite:1 alpha:0.85];
         lb.font = [UIFont systemFontOfSize:11];
@@ -641,23 +640,25 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)o {
     }
 
     NSArray *rows = @[ @[DY_K_SNAP, @"贴边吸附"],
-                       @[DY_K_AUTOCOLLAPSE, @"自动收起透明条"],
-                       @[DY_K_TOAST_SOUND, @"提示音"] ];
-    CGFloat y = 132;
+                       @[DY_K_AUTOCOLLAPSE, @"闲置自动收起"],
+                       @[DY_K_TOAST_SOUND, @"提示音"],
+                       @[DY_K_UNIFORM, @"统一箭头图标"],
+                       @[DY_K_NO_BASE, @"隐藏按钮底板"] ];
+    CGFloat y = 138;
     for (NSArray *row in rows) {
         NSString *k = row[0];
-        UILabel *lb = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 180, 20)];
+        UILabel *lb = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 200, 20)];
         lb.text = row[1];
         lb.textColor = [UIColor whiteColor];
         lb.font = [UIFont systemFontOfSize:14];
         [card addSubview:lb];
-        UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(290 - 22 - 51, y - 2, 51, 31)];
+        UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(300 - 22 - 51, y - 2, 51, 31)];
         sw.on = DYBool(k, YES);
         sw.tag = (NSUInteger)[k hash];
         [sw addTarget:self action:@selector(switchChanged:)
            forControlEvents:UIControlEventValueChanged];
         [card addSubview:sw];
-        y += 36;
+        y += 38;
     }
 
     [ov addSubview:card];
@@ -683,6 +684,8 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)o {
     if (s.tag == (NSUInteger)[DY_K_SNAP hash]) k = DY_K_SNAP;
     else if (s.tag == (NSUInteger)[DY_K_AUTOCOLLAPSE hash]) k = DY_K_AUTOCOLLAPSE;
     else if (s.tag == (NSUInteger)[DY_K_TOAST_SOUND hash]) k = DY_K_TOAST_SOUND;
+    else if (s.tag == (NSUInteger)[DY_K_UNIFORM hash]) k = DY_K_UNIFORM;
+    else if (s.tag == (NSUInteger)[DY_K_NO_BASE hash]) k = DY_K_NO_BASE;
     if (!k) return;
     [[NSUserDefaults standardUserDefaults] setBool:s.on forKey:k];
     DYToast(s.on ? @"已开启" : @"已关闭");
@@ -742,21 +745,21 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)o {
         }
     }
     if (!dock) {
-        CGFloat scale = DYFloat(DY_K_SCALE, 1.0);
-        dock = [[DYGlassDockView alloc] initWithFrame:CGRectMake(0, 0, 46 * scale, 46 * scale)];
+        CGFloat side = 30 * DYFloat(DY_K_SCALE, 1.0);
+        dock = [[DYGlassDockView alloc] initWithFrame:CGRectMake(0, 0, side, side)];
         [dock rebuildButtons];
         [key addSubview:dock];
     }
     CGFloat W = key.bounds.size.width, H = key.bounds.size.height;
-    CGFloat y = DYFloat(DY_K_POS_Y, 0.45) * H;
-    y = MIN(MAX(y, 60), H - dock.bounds.size.height - 40);
-    CGFloat x = W - dock.bounds.size.width - 4;
+    CGFloat y = DYFloat(DY_K_POS_Y, 0.21) * H;   // 频道栏下方（对齐截图）
+    y = MIN(MAX(y, 80), H - dock.bounds.size.height - 90);
+    CGFloat x = W - dock.bounds.size.width - 3;
     if (dock.frame.origin.x == 0 && dock.frame.origin.y == 0) {
         dock.frame = CGRectMake(x, y, dock.bounds.size.width, dock.bounds.size.height);
     } else {
         dock.frame = CGRectMake(
             MIN(MAX(dock.frame.origin.x, 0), MAX(0, W - dock.bounds.size.width)),
-            MIN(MAX(dock.frame.origin.y, 60), MAX(60, H - dock.bounds.size.height - 40)),
+            MIN(MAX(dock.frame.origin.y, 80), MAX(80, H - dock.bounds.size.height - 90)),
             dock.bounds.size.width, dock.bounds.size.height);
     }
     [key bringSubviewToFront:dock];

@@ -83,7 +83,7 @@ else:
 
 print("--- 检查 8：框架都声明在 Makefile ---")
 mk = open("Makefile", encoding="utf-8").read()
-for fw in ("UIKit", "Foundation", "AVFoundation", "Photos"):
+for fw in ("UIKit", "Foundation", "AVFoundation", "Photos", "AudioToolbox"):
     chk(fw in mk, f"Makefile 已链接 {fw}", f"Makefile 缺 {fw}")
 
 print()
