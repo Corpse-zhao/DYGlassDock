@@ -329,7 +329,7 @@ static NSString *DYTitleForAction(DYAction a) {
 
     NSString *spec = DYStr(DY_K_ACTIONS, @"download,copy,share,panel,lock");
     NSArray *parts = [spec componentsSeparatedByString:@","];
-    NSMutableArray<DYAction> *acts = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *acts = [NSMutableArray array];
     for (NSString *p in parts) {
         NSString *t = [p stringByTrimmingCharactersInSet:
             [NSCharacterSet whitespaceCharacterSet]];
