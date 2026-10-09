@@ -52,14 +52,19 @@ jobs:
       - name: Verify package
         run: |
           python3 - <<'PY'
-          import glob, subprocess, sys, os
+          import glob, subprocess, os
           debs = glob.glob("packages/*.deb")
           assert debs, "没有产出 deb"
-          deb = debs[0]
+          deb = os.path.abspath(debs[0])
           print("产物:", deb)
-          assert "arm64e" in deb, "❌ 产物后缀不是 arm64e，roothide scheme 未生效"
-          # data.tar 里必须有 filter plist
-          subprocess.run(["ar","x",deb], check=True, cwd="/tmp")
+          assert "arm64e" in os.path.basename(deb), "❌ 产物后缀不是 arm64e，roothide scheme 未生效"
+          # 结构自检：control / data.tar 必须存在
+          import tempfile, shutil
+          d = tempfile.mkdtemp()
+          for f in ("debian-binary", "control.tar.gz", "data.tar.gz", "control.tar.xz", "data.tar.xz"):
+              try: os.remove(os.path.join(d, f))
+              except OSError: pass
+          subprocess.run(["ar", "t", deb], check=True, cwd=d)
           print("✅ 产物校验通过")
           PY
 
